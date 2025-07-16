@@ -58,10 +58,13 @@ pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
 
     let result = Command::new(path).output().await?;
 
-    assert!(result.status.success(), "Native run failed");
-
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
+
+    // Dump output first so that we have them in the logs before checking if it failed
+    println!("{}\n{}", stdout, stderr);
+
+    assert!(result.status.success(), "Native run failed");
 
     std::fs::write(
         results_path(&sdk.config_path(), &sdk.board_config_name()),
