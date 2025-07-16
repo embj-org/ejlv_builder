@@ -1,7 +1,9 @@
 use std::{
     path::{Path, PathBuf},
-    process::{Command, exit},
+    process::exit,
 };
+
+use tokio::process::Command;
 
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk, prelude::*};
 
@@ -28,7 +30,7 @@ fn target_path(config_path: &Path, config_name: &str) -> PathBuf {
     build_folder(config_path, config_name).join("target")
 }
 
-fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
+async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
     let nprocs = num_cpus::get();
     let build_path = build_folder(&sdk.config_path(), sdk.board_config_name());
     let project_path = project_folder(&sdk.config_path(), sdk.board_name());
@@ -40,7 +42,8 @@ fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         .arg(project_path)
         .arg(format!("-DLV_CONF_PATH={}", conf_path.display()))
         .spawn()?
-        .wait()?;
+        .wait()
+        .await?;
 
     Command::new("cmake")
         .arg("--build")
@@ -48,26 +51,29 @@ fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         .arg("-j")
         .arg(nprocs.to_string())
         .spawn()?
-        .wait()?;
+        .wait()
+        .await?;
 
     Ok(())
 }
-fn run_native(sdk: &BuilderSdk) -> Result<()> {
+async fn run_native(sdk: &BuilderSdk) -> Result<()> {
     let path = target_path(&PathBuf::from(sdk.config_path()), sdk.board_config_name());
-    Command::new(path).spawn()?.wait()?;
+    Command::new(path).spawn()?.wait().await?;
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let sdk = BuilderSdk::init(|_sdk, event| async { match event {
-        BuilderEvent::Exit => exit(1),
-    }})
+    let sdk = BuilderSdk::init(|_sdk, event| async {
+        match event {
+            BuilderEvent::Exit => exit(1),
+        }
+    })
     .await
     .expect("Failed to init builder sdk");
 
     match sdk.action() {
-        Action::Build => build_cmake_native(&sdk),
-        Action::Run => run_native(&sdk),
+        Action::Build => build_cmake_native(&sdk).await,
+        Action::Run => run_native(&sdk).await,
     }
 }
