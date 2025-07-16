@@ -56,7 +56,7 @@ pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
         sdk.board_config_name(),
     );
 
-    let result = Command::new(path).spawn()?.wait_with_output().await?;
+    let result = Command::new(path).output().await?;
 
     assert!(result.status.success(), "Native run failed");
 
