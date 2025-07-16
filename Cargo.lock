@@ -64,10 +64,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ej-io"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c38ad99fd31c5b23dc51faa882d1deae8d2e8a5909edf20330cf97233d9cb32"
+dependencies = [
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ejlv_builder"
 version = "0.1.0"
 dependencies = [
  "ej-builder-sdk",
+ "ej-io",
  "num_cpus",
  "tokio",
 ]

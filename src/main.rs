@@ -1,10 +1,17 @@
-use std::process::exit;
+use std::{
+    path::{Path, PathBuf},
+    process::exit,
+};
 
+mod esp32;
 mod native;
 
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk, prelude::*};
 
-use crate::native::{build_cmake_native, run_native};
+use crate::{
+    esp32::{build_esp32s3, run_esp32s3},
+    native::{build_cmake_native, run_native},
+};
 
 pub fn workspace_folder(config_path: &Path) -> PathBuf {
     config_path.parent().unwrap().to_path_buf()
@@ -17,6 +24,9 @@ pub async fn build(sdk: BuilderSdk) -> Result<()> {
     if sdk.board_name() == "rpi4" {
         return build_cmake_native(&sdk).await;
     }
+    if sdk.board_name() == "esp32s3" {
+        return build_esp32s3(&sdk).await;
+    }
 
     todo!("Implement build for {}", sdk.board_name());
 }
@@ -24,6 +34,9 @@ pub async fn build(sdk: BuilderSdk) -> Result<()> {
 pub async fn run(sdk: BuilderSdk) -> Result<()> {
     if sdk.board_name() == "rpi4" {
         return run_native(&sdk).await;
+    }
+    if sdk.board_name() == "esp32s3" {
+        return run_esp32s3(&sdk).await;
     }
 
     todo!("Implement run for {}", sdk.board_name());
