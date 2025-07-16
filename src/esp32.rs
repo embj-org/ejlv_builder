@@ -4,7 +4,7 @@ use ej_builder_sdk::{BuilderSdk, prelude::*};
 use ej_io::runner::{RunEvent, Runner};
 use tokio::{process::Command, sync::mpsc::channel};
 
-use crate::board_folder;
+use crate::{board_folder, results_path};
 
 pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     let board_path = board_folder(&sdk.config_path(), sdk.board_name());
@@ -59,6 +59,11 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
                  * sentinel value would be cut in half */
                 output.push_str(&line);
                 if output.contains("Benchmark Over") {
+                    std::fs::write(
+                        results_path(&sdk.config_path(), &sdk.board_config_name()),
+                        output,
+                    )?;
+
                     return Ok(());
                 }
             }

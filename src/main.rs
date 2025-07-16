@@ -20,6 +20,10 @@ pub fn board_folder(config_path: &Path, board_name: &str) -> PathBuf {
     workspace_folder(config_path).join(board_name)
 }
 
+fn results_path(config_path: &Path, config_name: &str) -> PathBuf {
+    workspace_folder(config_path).join(format!("results-{}", config_name))
+}
+
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
     if sdk.board_name() == "rpi4" {
         return build_cmake_native(&sdk).await;

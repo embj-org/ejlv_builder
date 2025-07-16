@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use ej_builder_sdk::{BuilderSdk, prelude::*};
 use tokio::process::Command;
 
-use crate::board_folder;
+use crate::{board_folder, results_path};
 
 fn build_folder(config_path: &Path, board_name: &str, config_name: &str) -> PathBuf {
     board_folder(config_path, board_name).join(format!("build-{config_name}"))
@@ -56,8 +56,17 @@ pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
         sdk.board_config_name(),
     );
 
-    let result = Command::new(path).spawn()?.wait().await?;
-    assert!(result.success());
+    let result = Command::new(path).spawn()?.wait_with_output().await?;
+
+    assert!(result.status.success(), "Native run failed");
+
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    std::fs::write(
+        results_path(&sdk.config_path(), &sdk.board_config_name()),
+        format!("{}\n{}", stdout, stderr),
+    )?;
 
     Ok(())
 }
