@@ -25,7 +25,7 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
     let project_path = board_folder(&sdk.config_path(), sdk.board_name());
     let conf_path = project_path.join(format!("lv_conf_{}.h", sdk.board_config_name()));
 
-    Command::new("cmake")
+    let result = Command::new("cmake")
         .arg("-B")
         .arg(&build_path)
         .arg("-S")
@@ -35,7 +35,9 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         .wait()
         .await?;
 
-    Command::new("cmake")
+    assert!(result.success());
+
+    let result = Command::new("cmake")
         .arg("--build")
         .arg(&build_path)
         .arg("-j")
@@ -44,6 +46,7 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         .wait()
         .await?;
 
+    assert!(result.success());
     Ok(())
 }
 pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
@@ -53,6 +56,8 @@ pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
         sdk.board_config_name(),
     );
 
-    Command::new(path).spawn()?.wait().await?;
+    let result = Command::new(path).spawn()?.wait().await?;
+    assert!(result.success());
+
     Ok(())
 }
