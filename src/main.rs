@@ -6,6 +6,13 @@ use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk, prelude::*};
 
 use crate::native::{build_cmake_native, run_native};
 
+pub fn workspace_folder(config_path: &Path) -> PathBuf {
+    config_path.parent().unwrap().to_path_buf()
+}
+pub fn board_folder(config_path: &Path, board_name: &str) -> PathBuf {
+    workspace_folder(config_path).join(board_name)
+}
+
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
     if sdk.board_name() == "rpi4" {
         return build_cmake_native(&sdk).await;

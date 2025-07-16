@@ -3,12 +3,10 @@ use std::path::{Path, PathBuf};
 use ej_builder_sdk::{BuilderSdk, prelude::*};
 use tokio::process::Command;
 
-fn project_folder(config_path: &Path, board_name: &str) -> PathBuf {
-    config_path.parent().unwrap().join(board_name)
-}
+use crate::board_folder;
 
 fn build_folder(config_path: &Path, board_name: &str, config_name: &str) -> PathBuf {
-    project_folder(config_path, board_name).join(format!("build-{config_name}"))
+    board_folder(config_path, board_name).join(format!("build-{config_name}"))
 }
 
 fn target_path(config_path: &Path, board_name: &str, config_name: &str) -> PathBuf {
@@ -24,7 +22,7 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         sdk.board_config_name(),
     );
 
-    let project_path = project_folder(&sdk.config_path(), sdk.board_name());
+    let project_path = board_folder(&sdk.config_path(), sdk.board_name());
     let conf_path = project_path.join(format!("lv_conf_{}.h", sdk.board_config_name()));
 
     Command::new("cmake")
