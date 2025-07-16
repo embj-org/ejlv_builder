@@ -30,7 +30,7 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
         .arg(&build_path)
         .arg("-S")
         .arg(project_path)
-        .arg(format!("-DLV_CONF_PATH={}", conf_path.display()))
+        .arg(format!("-DLV_BUILD_CONF_PATH={}", conf_path.display()))
         .spawn()?
         .wait()
         .await?;
