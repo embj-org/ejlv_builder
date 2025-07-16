@@ -14,6 +14,7 @@ use tokio::{
     sync::mpsc::{Receiver, channel},
     time::timeout,
 };
+use tracing::{info, warn};
 
 use crate::{board_folder, results_path};
 
@@ -36,6 +37,8 @@ pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
 }
 
 pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
+    let _ = std::fs::remove_file(results_path(&sdk.config_path(), &sdk.board_config_name()));
+
     let board_path = board_folder(&sdk.config_path(), sdk.board_name());
 
     let command = "bash";
@@ -59,10 +62,16 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     let timeout_result = timeout(Duration::from_secs(30), &mut handler).await;
     match timeout_result {
         Ok(result) => {
+            info!("IDF process finished {:?}", result);
         }
         Err(_timeout) => {
+            warn!(
+                "Even after force stopping the idf monitor process, the task handling it didn't complete in time. Aborting. \
+                        This may mean idf will be left in zombie state"
+            );
             handler.abort();
             let result = handler.await;
+            info!("Task result after aborting {:?}", result);
         }
     }
     result
@@ -84,6 +93,7 @@ async fn capture_monitor_output(sdk: &BuilderSdk, mut rx: Receiver<RunEvent>) ->
                 )));
             }
             RunEvent::ProcessNewOutputLine(line) => {
+                info!("{}", line);
                 /* Concat because `ProcessNewOutputLine` may not provide a full line and the
                  * sentinel value would be cut in half. Also we can them dump the output as the
                  * result*/

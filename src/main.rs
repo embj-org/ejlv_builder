@@ -51,6 +51,7 @@ pub async fn run(sdk: BuilderSdk) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     let sdk = BuilderSdk::init(|_sdk, event| async {
         match event {
             BuilderEvent::Exit => exit(1),

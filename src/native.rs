@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use ej_builder_sdk::BuilderSdk;
 use tokio::process::Command;
+use tracing::info;
 
 use crate::{board_folder, prelude::*, results_path};
 
@@ -50,6 +51,9 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
     Ok(())
 }
 pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
+    let results_p = results_path(&sdk.config_path(), &sdk.board_config_name());
+    let _ = std::fs::remove_file(&results_p);
+
     let path = target_path(
         &PathBuf::from(sdk.config_path()),
         sdk.board_name(),
@@ -62,14 +66,11 @@ pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
     let stderr = String::from_utf8_lossy(&result.stderr);
 
     // Dump output first so that we have them in the logs before checking if it failed
-    println!("{}\n{}", stdout, stderr);
+    info!("{}\n{}", stdout, stderr);
 
     assert!(result.status.success(), "Native run failed");
 
-    std::fs::write(
-        results_path(&sdk.config_path(), &sdk.board_config_name()),
-        format!("{}\n{}", stdout, stderr),
-    )?;
+    std::fs::write(&results_p, format!("{}\n{}", stdout, stderr))?;
 
     Ok(())
 }
