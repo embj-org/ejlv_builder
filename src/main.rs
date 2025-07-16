@@ -3,14 +3,17 @@ use std::{
     process::exit,
 };
 
+mod error;
 mod esp32;
 mod native;
+mod prelude;
 
-use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk, prelude::*};
+use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk};
 
 use crate::{
     esp32::{build_esp32s3, run_esp32s3},
     native::{build_cmake_native, run_native},
+    prelude::*,
 };
 
 pub fn workspace_folder(config_path: &Path) -> PathBuf {

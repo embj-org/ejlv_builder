@@ -80,6 +80,7 @@ dependencies = [
  "ej-builder-sdk",
  "ej-io",
  "num_cpus",
+ "thiserror",
  "tokio",
 ]
 

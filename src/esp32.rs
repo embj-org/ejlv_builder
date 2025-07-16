@@ -1,8 +1,19 @@
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
-use ej_builder_sdk::{BuilderSdk, prelude::*};
+use crate::prelude::*;
+use ej_builder_sdk::BuilderSdk;
 use ej_io::runner::{RunEvent, Runner};
-use tokio::{process::Command, sync::mpsc::channel};
+use tokio::{
+    process::Command,
+    sync::mpsc::{Receiver, channel},
+    time::timeout,
+};
 
 use crate::{board_folder, results_path};
 
@@ -37,39 +48,58 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     ];
 
     let stop = Arc::new(AtomicBool::new(false));
-    let (tx, mut rx) = channel(10);
-
+    let (tx, rx) = channel(10);
     let runner = Runner::new(command, args);
+    let runner_stop = stop.clone();
+    let mut handler = tokio::task::spawn(async move { runner.run(tx, runner_stop).await });
+    let result = capture_monitor_output(sdk, rx).await;
 
-    tokio::task::spawn(async move { runner.run(tx, stop).await });
+    // Always kill the monitor process to not leave zombie process running
+    stop.store(true, Ordering::Release);
+    let timeout_result = timeout(Duration::from_secs(30), &mut handler).await;
+    match timeout_result {
+        Ok(result) => {
+        }
+        Err(_timeout) => {
+            handler.abort();
+            let result = handler.await;
+        }
+    }
+    result
+}
 
+async fn capture_monitor_output(sdk: &BuilderSdk, mut rx: Receiver<RunEvent>) -> Result<()> {
     let mut output = String::new();
     while let Some(event) = rx.recv().await {
         match event {
             RunEvent::ProcessCreationFailed(error) => {
-                assert!(false, "Failed to create esp32s3 run process {error}");
+                return Err(Error::IDFError(format!(
+                    "Couldn't start IDF flash monitor command {}",
+                    error
+                )));
             }
             RunEvent::ProcessEnd(_) => {
-                assert!(false, "The process should never end");
+                return Err(Error::IDFError(String::from(
+                    "IDF run process quit unexpectedly",
+                )));
             }
             RunEvent::ProcessNewOutputLine(line) => {
-                println!("{}", line);
-
                 /* Concat because `ProcessNewOutputLine` may not provide a full line and the
-                 * sentinel value would be cut in half */
+                 * sentinel value would be cut in half. Also we can them dump the output as the
+                 * result*/
                 output.push_str(&line);
                 if output.contains("Benchmark Over") {
                     std::fs::write(
                         results_path(&sdk.config_path(), &sdk.board_config_name()),
-                        output,
+                        output.clone(),
                     )?;
 
                     return Ok(());
                 }
+                continue;
             }
             _ => (),
         }
     }
-
     Ok(())
 }

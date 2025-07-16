@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use ej_builder_sdk::{BuilderSdk, prelude::*};
+use ej_builder_sdk::BuilderSdk;
 use tokio::process::Command;
 
-use crate::{board_folder, results_path};
+use crate::{board_folder, prelude::*, results_path};
 
 fn build_folder(config_path: &Path, board_name: &str, config_name: &str) -> PathBuf {
     board_folder(config_path, board_name).join(format!("build-{config_name}"))
