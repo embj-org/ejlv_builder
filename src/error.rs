@@ -2,10 +2,6 @@
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// IDF Process failed
-    #[error("Error spawning IDF process {0}")]
-    IDFError(String),
-
     /// I/O operation failed.
     #[error(transparent)]
     IO(#[from] std::io::Error),
@@ -13,4 +9,12 @@ pub enum Error {
     /// Error inside BuilderSDK
     #[error(transparent)]
     BuilderSDK(#[from] ej_builder_sdk::error::Error),
+
+    /// Serial Port
+    #[error(transparent)]
+    SerialPort(#[from] tokio_serial::Error),
+
+    /// Serial Port Timeout
+    #[error("Timeout Waiting For Benchmark To End - Output: {0}")]
+    TimeoutWaitingForBenchmarkToEnd(String),
 }
