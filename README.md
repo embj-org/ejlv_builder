@@ -8,13 +8,13 @@ It integrates the [EJ Builder SDK](https://crates.io/crates/ej-builder-sdk) for 
 ### From Git
 
 ```bash
-cargo install --git https://github.com/AndreCostaaa/ejlv_builder
+cargo install --git https://github.com/embj-org/ejlv_builder
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/AndreCostaaa/ejlv_builder.git
+git clone https://github.com/embj-org/ejlv_builder.git
 cd ejlv_builder
 cargo install --path .
 ```
