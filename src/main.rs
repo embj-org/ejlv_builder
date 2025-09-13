@@ -81,7 +81,7 @@ impl Drop for BuildProcess {
     fn drop(&mut self) {
         info!("Restoring git folder");
         std::process::Command::new("git")
-            .arg("-c")
+            .arg("-C")
             .arg(lvgl_folder(&self.sdk.config_path()))
             .arg("restore")
             .arg(".")
