@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Duration;
 
@@ -10,13 +11,30 @@ use tracing::warn;
 
 use crate::{board_folder, results_path};
 
+fn idf_version(sdk: &BuilderSdk) -> &'static str {
+    if sdk.board_config_name() == "eve" {
+        "5.3.1"
+    } else {
+        "5.2.5"
+    }
+}
+fn project_path(sdk: &BuilderSdk) -> PathBuf {
+    if sdk.board_config_name() == "eve" {
+        board_folder(&sdk.config_path(), "eve")
+    } else {
+        board_folder(&sdk.config_path(), sdk.board_name())
+    }
+}
+
 async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> {
-    let board_path = board_folder(&sdk.config_path(), sdk.board_name());
+    let idf_version = idf_version(sdk);
+    let project_path = project_path(sdk);
     Ok(Command::new("bash")
         .arg("-c")
         .arg(&format!(
-            ". /home/lvgl/esp/esp-idf/export.sh && idf.py -C {} {}",
-            board_path.display(),
+            ". /home/lvgl/esp/esp-idf{}/export.sh && idf.py -C {} {}",
+            idf_version,
+            project_path.display(),
             command
         ))
         .spawn()?
@@ -25,7 +43,7 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
 }
 
 pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
-    let result = run_idf_command(sdk, "build").await?;
+    let result = run_idf_command(sdk, "--ccache build").await?;
 
     if !result.success() {
         warn!(
@@ -37,7 +55,7 @@ pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
         // case files were added or removed from the source tree
         let result = run_idf_command(sdk, &format!("set-target {}", sdk.board_name())).await?;
         assert!(result.success(), "Clean Failed");
-        let result = run_idf_command(sdk, "build").await?;
+        let result = run_idf_command(sdk, "--ccache build").await?;
         assert!(result.success(), "Build Failed");
     }
 
