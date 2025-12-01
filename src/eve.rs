@@ -6,7 +6,6 @@ use ej_builder_sdk::BuilderSdk;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio_serial::SerialPortBuilderExt;
-use tracing::warn;
 
 use crate::{board_folder, results_path};
 
@@ -15,33 +14,13 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
     Ok(Command::new("bash")
         .arg("-c")
         .arg(&format!(
-            ". /home/lvgl/esp/esp-idf/export.sh && idf.py -C {} {}",
+            ". /home/lvgl/esp/esp-idf5.3.1/export.sh && idf.py --ccache -C {} {}",
             board_path.display(),
             command
         ))
         .spawn()?
         .wait()
         .await?)
-}
-
-pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
-    let result = run_idf_command(sdk, "build").await?;
-
-    if !result.success() {
-        warn!(
-            "Build failed for ESP32. This happens when new source files are added. Performing a clean build"
-        );
-        // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/idf-py.html#select-the-target-chip-set-target
-        // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/idf-py.html#reconfigure-the-project-reconfigure
-        // `set-target` performs a clean build and reconfigures the project which is important in
-        // case files were added or removed from the source tree
-        let result = run_idf_command(sdk, &format!("set-target {}", sdk.board_name())).await?;
-        assert!(result.success(), "Clean Failed");
-        let result = run_idf_command(sdk, "build").await?;
-        assert!(result.success(), "Build Failed");
-    }
-
-    Ok(())
 }
 
 pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {

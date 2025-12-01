@@ -6,16 +6,25 @@ use std::{
 mod error;
 mod esp32;
 mod native;
+mod rzg3e;
+mod stm32;
+// mod eve;
 mod prelude;
 
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk};
+use tokio::process::Command;
 use tracing::info;
 
 use crate::{
     esp32::{build_esp32s3, run_esp32s3},
     native::{build_cmake_native, run_native},
-    prelude::*,
+    rzg3e::{build_rzg3e, run_rzg3e},
+    stm32::{build_stm32, run_stm32},
+    prelude::*
 };
+
+
+const RZG3E_ADDRESS: &str = "192.168.1.172";
 
 
 pub fn workspace_folder(config_path: &Path) -> PathBuf {
@@ -96,33 +105,64 @@ pub async fn build(sdk: BuilderSdk) -> Result<()> {
 
     build_process.setup_cmakelists().await?;
 
-    if sdk.board_name() == "rpi4" {
+    if sdk.board_name() == "SER8" {
         return build_cmake_native(&sdk).await;
     }
     if sdk.board_name() == "esp32s3" {
         return build_esp32s3(&sdk).await;
+    }
+    if sdk.board_name() == "Renesas RZ/G3E" {
+        return build_rzg3e(&sdk).await;
+    }
+    if sdk.board_name() == "stm32u5g9" {
+        return build_stm32(&sdk).await;
     }
 
     todo!("Implement build for {}", sdk.board_name());
 }
 
 pub async fn run(sdk: BuilderSdk) -> Result<()> {
-    if sdk.board_name() == "rpi4" {
+    if sdk.board_name() == "SER8" {
         return run_native(&sdk).await;
     }
     if sdk.board_name() == "esp32s3" {
         return run_esp32s3(&sdk).await;
     }
+    if sdk.board_name() == "Renesas RZ/G3E" {
+        return run_rzg3e(&sdk).await;
+    }
+    if sdk.board_name() == "stm32u5g9" {
+        return run_stm32(&sdk).await;
+    }
+    // if sdk.board_name() == "eve" {
+    //     return run_eve(&sdk).await;
+    // }
 
     todo!("Implement run for {}", sdk.board_name());
+}
+
+async fn kill_application_in_renesas_rzg3e() -> Result<()> {
+    let result = Command::new("ssh")
+        .arg(format!("root@{RZG3E_ADDRESS}"))
+        .arg("killall lvglsim")
+        .spawn()?
+        .wait()
+        .await?;
+    assert!(result.success(), "Failed to kill process in Renesas RZ/G3E");
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-    let sdk = BuilderSdk::init(|_sdk, event| async {
+    let sdk = BuilderSdk::init(|sdk, event| async move {
         match event {
-            BuilderEvent::Exit => exit(1),
+            BuilderEvent::Exit => {
+                if sdk.board_name().starts_with("Renesas") {
+                    let _ = kill_application_in_renesas_rzg3e().await;
+                }
+                exit(1)
+            },
         }
     })
     .await
