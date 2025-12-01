@@ -1,5 +1,7 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
+    pin::Pin,
     process::exit,
 };
 
@@ -23,6 +25,51 @@ use crate::{
     stm32::{build_stm32, run_stm32},
 };
 
+type BuildFn = fn(&BuilderSdk) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+type RunFn = fn(&BuilderSdk) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+
+struct BoardConfig {
+    build_fn: BuildFn,
+    run_fn: RunFn,
+}
+
+fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
+    let mut configs = HashMap::new();
+
+    configs.insert(
+        "SER8",
+        BoardConfig {
+            build_fn: |sdk| Box::pin(build_cmake_native(sdk)),
+            run_fn: |sdk| Box::pin(run_native(sdk)),
+        },
+    );
+
+    configs.insert(
+        "esp32s3",
+        BoardConfig {
+            build_fn: |sdk| Box::pin(build_esp32s3(sdk)),
+            run_fn: |sdk| Box::pin(run_esp32s3(sdk)),
+        },
+    );
+
+    configs.insert(
+        "Renesas RZ/G3E",
+        BoardConfig {
+            build_fn: |sdk| Box::pin(build_rzg3e(sdk)),
+            run_fn: |sdk| Box::pin(run_rzg3e(sdk)),
+        },
+    );
+
+    configs.insert(
+        "stm32u5g9",
+        BoardConfig {
+            build_fn: |sdk| Box::pin(build_stm32(sdk)),
+            run_fn: |sdk| Box::pin(run_stm32(sdk)),
+        },
+    );
+
+    configs
+}
 const RZG3E_ADDRESS: &str = "192.168.1.172";
 
 pub fn workspace_folder(config_path: &Path) -> PathBuf {
@@ -185,48 +232,27 @@ impl Drop for BuildProcess {
             .expect("Git restore process failed.");
     }
 }
-
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
     let build_process = BuildProcess {
         config_path: sdk.config_path().clone(),
     };
-
     build_process.fetch_build_files_from_master().await?;
 
-    if sdk.board_name() == "SER8" {
-        return build_cmake_native(&sdk).await;
-    }
-    if sdk.board_name() == "esp32s3" {
-        return build_esp32s3(&sdk).await;
-    }
-    if sdk.board_name() == "Renesas RZ/G3E" {
-        return build_rzg3e(&sdk).await;
-    }
-    if sdk.board_name() == "stm32u5g9" {
-        return build_stm32(&sdk).await;
-    }
+    let configs = get_board_configs();
+    let board_config = configs
+        .get(sdk.board_name())
+        .expect(&format!("Unsupported board: {}", sdk.board_name()));
 
-    todo!("Implement build for {}", sdk.board_name());
+    (board_config.build_fn)(&sdk).await
 }
 
 pub async fn run(sdk: BuilderSdk) -> Result<()> {
-    if sdk.board_name() == "SER8" {
-        return run_native(&sdk).await;
-    }
-    if sdk.board_name() == "esp32s3" {
-        return run_esp32s3(&sdk).await;
-    }
-    if sdk.board_name() == "Renesas RZ/G3E" {
-        return run_rzg3e(&sdk).await;
-    }
-    if sdk.board_name() == "stm32u5g9" {
-        return run_stm32(&sdk).await;
-    }
-    // if sdk.board_name() == "eve" {
-    //     return run_eve(&sdk).await;
-    // }
+    let configs = get_board_configs();
+    let board_config = configs
+        .get(sdk.board_name())
+        .expect(&format!("Unsupported board: {}", sdk.board_name()));
 
-    todo!("Implement run for {}", sdk.board_name());
+    (board_config.run_fn)(&sdk).await
 }
 
 async fn kill_application_in_renesas_rzg3e() -> Result<()> {
