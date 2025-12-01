@@ -11,7 +11,9 @@ fn build_folder(config_path: &Path, config_name: &str) -> PathBuf {
 }
 
 fn target_path(config_path: &Path, config_name: &str) -> PathBuf {
-    build_folder(config_path, config_name).join("bin").join("lvglsim")
+    build_folder(config_path, config_name)
+        .join("bin")
+        .join("lvglsim")
 }
 
 pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {

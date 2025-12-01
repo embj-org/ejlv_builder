@@ -13,7 +13,9 @@ fn build_folder(config_path: &Path, config_name: &str) -> PathBuf {
 }
 
 fn target_path(config_path: &Path, config_name: &str) -> PathBuf {
-    build_folder(config_path, config_name).join("bin").join("lvglsim")
+    build_folder(config_path, config_name)
+        .join("bin")
+        .join("lvglsim")
 }
 
 pub async fn build_rzg3e(sdk: &BuilderSdk) -> Result<()> {
@@ -67,18 +69,18 @@ pub async fn run_rzg3e(sdk: &BuilderSdk) -> Result<()> {
 
     if sdk.board_config_name() == "wayland" {
         Command::new("ssh")
-        .arg(&format!("root@{}", RZG3E_ADDRESS))
-        .arg(&format!("systemctl start weston"))
-        .spawn()?
-        .wait_with_output()
-        .await?;
+            .arg(&format!("root@{}", RZG3E_ADDRESS))
+            .arg(&format!("systemctl start weston"))
+            .spawn()?
+            .wait_with_output()
+            .await?;
     } else {
         Command::new("ssh")
-        .arg(&format!("root@{}", RZG3E_ADDRESS))
-        .arg(&format!("systemctl stop weston.socket"))
-        .spawn()?
-        .wait_with_output()
-        .await?;
+            .arg(&format!("root@{}", RZG3E_ADDRESS))
+            .arg(&format!("systemctl stop weston.socket"))
+            .spawn()?
+            .wait_with_output()
+            .await?;
     };
 
     let result = Command::new("ssh")
