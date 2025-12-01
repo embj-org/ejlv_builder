@@ -52,35 +52,121 @@ fn results_path(config_path: &Path, config_name: &str) -> PathBuf {
 }
 
 struct BuildProcess {
-    sdk: BuilderSdk,
+    config_path: PathBuf,
 }
-impl BuildProcess {
-    pub async fn setup_cmakelists(&self) -> Result<()> {
-        info!("Preparing build system for LVGL");
-        let original_path = workspace_folder(&self.sdk.config_path()).join("CMakeLists.lvgl.txt");
-        let target_path = lvgl_folder(&self.sdk.config_path()).join("CMakeLists.txt");
 
-        let original_folder = workspace_folder(&self.sdk.config_path()).join("cmake-lvgl");
-        let target_folder = lvgl_folder(&self.sdk.config_path())
+impl BuildProcess {
+    const LVGL_REPO: &'static str = "https://raw.githubusercontent.com/lvgl/lvgl/master";
+
+    async fn fetch_file_from_github(url: &str, target: &Path) -> Result<()> {
+        let response = reqwest::get(url)
+            .await
+            .expect("Failed to fetch file from github");
+        assert!(
+            response.status().is_success(),
+            "Failed to fetch {}: {}",
+            url,
+            response.status()
+        );
+
+        let content = response
+            .bytes()
+            .await
+            .expect("Failed to get bytes from file");
+
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(target, content).await?;
+        Ok(())
+    }
+    async fn fetch_github_tree(
+        owner: &str,
+        repo: &str,
+        path: &str,
+        branch: &str,
+    ) -> Result<Vec<String>> {
+        let api_url = format!(
+            "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
+            owner, repo, path, branch
+        );
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&api_url)
+            .header("User-Agent", "lvgl-builder")
+            .send()
+            .await
+            .expect("Failed to fetch github tree");
+
+        assert!(
+            response.status().is_success(),
+            "Failed to fetch directory listing: {}",
+            response.status()
+        );
+
+        let response_text = response.text().await.expect("Failed to get response text");
+        let items: Vec<serde_json::Value> =
+            serde_json::from_str(&response_text).expect("faield to parse response text");
+        let files: Vec<String> = items
+            .into_iter()
+            .filter(|item| item["type"] == "file")
+            .filter_map(|item| item["download_url"].as_str().map(String::from))
+            .collect();
+
+        Ok(files)
+    }
+
+    async fn fetch_cmakelists_files(&self) -> Result<()> {
+        let cmakelists_url = format!("{}/CMakeLists.txt", Self::LVGL_REPO);
+        let target_path = lvgl_folder(&self.config_path).join("CMakeLists.txt");
+
+        Self::fetch_file_from_github(&cmakelists_url, &target_path).await?;
+
+        let cmake_files =
+            Self::fetch_github_tree("lvgl", "lvgl", "env_support/cmake", "master").await?;
+        let target_folder = lvgl_folder(&self.config_path)
             .join("env_support")
             .join("cmake");
-        tokio::fs::copy(original_path, target_path).await?;
 
-        if target_folder.exists() {
-            tokio::fs::remove_dir_all(&target_folder).await?;
+        for file_url in cmake_files {
+            let file_name = file_url.split('/').last().unwrap();
+            let target = target_folder.join(file_name);
+            Self::fetch_file_from_github(&file_url, &target).await?;
         }
-        tokio::fs::create_dir_all(&target_folder).await?;
 
-        let mut entries = tokio::fs::read_dir(&original_folder).await?;
+        Ok(())
+    }
 
-        while let Some(entry) = entries.next_entry().await? {
-            let file_type = entry.file_type().await?;
-            if file_type.is_file() {
-                let file_name = entry.file_name();
-                let dest_path = target_folder.join(file_name);
-                tokio::fs::copy(entry.path(), dest_path).await?;
-            }
+    async fn fetch_makefile(&self) -> Result<()> {
+        let makefile_url = format!("{}/lvgl.mk", Self::LVGL_REPO);
+        let target_path = lvgl_folder(&self.config_path).join("lvgl.mk");
+        Self::fetch_file_from_github(&makefile_url, &target_path).await?;
+        Ok(())
+    }
+
+    async fn fetch_build_scripts(&self) -> Result<()> {
+        let script_files = Self::fetch_github_tree("lvgl", "lvgl", "scripts", "master").await?;
+        let target_folder = lvgl_folder(&self.config_path).join("scripts");
+
+        for file_url in script_files {
+            let file_name = file_url.split('/').last().unwrap();
+            let target = target_folder.join(file_name);
+            Self::fetch_file_from_github(&file_url, &target).await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn fetch_build_files_from_master(&self) -> Result<()> {
+        info!("Preparing build system for LVGL");
+        info!("Fetching Cmakelists files");
+        self.fetch_cmakelists_files().await?;
+        info!("Fetching makefile");
+        self.fetch_makefile().await?;
+        info!("Fetching scripts");
+        self.fetch_build_scripts().await?;
+        info!("LVGL build system Ready");
         Ok(())
     }
 }
@@ -90,7 +176,7 @@ impl Drop for BuildProcess {
         info!("Restoring git folder");
         std::process::Command::new("git")
             .arg("-C")
-            .arg(lvgl_folder(&self.sdk.config_path()))
+            .arg(lvgl_folder(&self.config_path))
             .arg("restore")
             .arg(".")
             .spawn()
@@ -101,9 +187,11 @@ impl Drop for BuildProcess {
 }
 
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
-    let build_process = BuildProcess { sdk: sdk.clone() };
+    let build_process = BuildProcess {
+        config_path: sdk.config_path().clone(),
+    };
 
-    build_process.setup_cmakelists().await?;
+    build_process.fetch_build_files_from_master().await?;
 
     if sdk.board_name() == "SER8" {
         return build_cmake_native(&sdk).await;
@@ -155,6 +243,7 @@ async fn kill_application_in_renesas_rzg3e() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+
     let sdk = BuilderSdk::init(|sdk, event| async move {
         match event {
             BuilderEvent::Exit => {
