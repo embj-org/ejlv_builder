@@ -102,3 +102,14 @@ pub async fn run_rzg3e(sdk: &BuilderSdk) -> Result<()> {
 
     Ok(())
 }
+
+pub async fn kill_rzg3e(_: &BuilderSdk) -> Result<()> {
+    let result = Command::new("ssh")
+        .arg(format!("root@{RZG3E_ADDRESS}"))
+        .arg("killall lvglsim")
+        .spawn()?
+        .wait()
+        .await?;
+    assert!(result.success(), "Failed to kill process in Renesas RZ/G3E");
+    Ok(())
+}

@@ -8,29 +8,33 @@ use std::{
 mod error;
 mod esp32;
 mod native;
+mod prelude;
 mod rzg3e;
 mod stm32;
-// mod eve;
-mod prelude;
 
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk};
-use tokio::process::Command;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     esp32::{build_esp32s3, run_esp32s3},
     native::{build_cmake_native, run_native},
     prelude::*,
-    rzg3e::{build_rzg3e, run_rzg3e},
+    rzg3e::{build_rzg3e, kill_rzg3e, run_rzg3e},
     stm32::{build_stm32, run_stm32},
 };
 
 type BuildFn = fn(&BuilderSdk) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 type RunFn = fn(&BuilderSdk) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+type KillFn = fn(&BuilderSdk) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 
 struct BoardConfig {
     build_fn: BuildFn,
     run_fn: RunFn,
+    kill_fn: KillFn,
+}
+
+async fn no_kill() -> Result<()> {
+    Ok(())
 }
 
 fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
@@ -41,6 +45,7 @@ fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
         BoardConfig {
             build_fn: |sdk| Box::pin(build_cmake_native(sdk)),
             run_fn: |sdk| Box::pin(run_native(sdk)),
+            kill_fn: |_| Box::pin(no_kill()),
         },
     );
 
@@ -49,6 +54,7 @@ fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
         BoardConfig {
             build_fn: |sdk| Box::pin(build_esp32s3(sdk)),
             run_fn: |sdk| Box::pin(run_esp32s3(sdk)),
+            kill_fn: |_| Box::pin(no_kill()),
         },
     );
 
@@ -57,6 +63,7 @@ fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
         BoardConfig {
             build_fn: |sdk| Box::pin(build_rzg3e(sdk)),
             run_fn: |sdk| Box::pin(run_rzg3e(sdk)),
+            kill_fn: |sdk| Box::pin(kill_rzg3e(sdk)),
         },
     );
 
@@ -65,12 +72,12 @@ fn get_board_configs() -> HashMap<&'static str, BoardConfig> {
         BoardConfig {
             build_fn: |sdk| Box::pin(build_stm32(sdk)),
             run_fn: |sdk| Box::pin(run_stm32(sdk)),
+            kill_fn: |_| Box::pin(no_kill()),
         },
     );
 
     configs
 }
-const RZG3E_ADDRESS: &str = "192.168.1.172";
 
 pub fn workspace_folder(config_path: &Path) -> PathBuf {
     config_path.parent().unwrap().to_path_buf()
@@ -254,16 +261,13 @@ pub async fn run(sdk: BuilderSdk) -> Result<()> {
 
     (board_config.run_fn)(&sdk).await
 }
+pub async fn kill(sdk: BuilderSdk) -> Result<()> {
+    let configs = get_board_configs();
+    let board_config = configs
+        .get(sdk.board_name())
+        .expect(&format!("Unsupported board: {}", sdk.board_name()));
 
-async fn kill_application_in_renesas_rzg3e() -> Result<()> {
-    let result = Command::new("ssh")
-        .arg(format!("root@{RZG3E_ADDRESS}"))
-        .arg("killall lvglsim")
-        .spawn()?
-        .wait()
-        .await?;
-    assert!(result.success(), "Failed to kill process in Renesas RZ/G3E");
-    Ok(())
+    (board_config.kill_fn)(&sdk).await
 }
 
 #[tokio::main]
@@ -273,8 +277,8 @@ async fn main() -> Result<()> {
     let sdk = BuilderSdk::init(|sdk, event| async move {
         match event {
             BuilderEvent::Exit => {
-                if sdk.board_name().starts_with("Renesas") {
-                    let _ = kill_application_in_renesas_rzg3e().await;
+                if let Err(err) = kill(sdk).await {
+                    error!("Failed to kill application {err}");
                 }
                 exit(1)
             }
