@@ -178,7 +178,7 @@ async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
 
         let mut lvgl_kconfig = OpenOptions::new()
             .read(true)
-            .open(project_path.join(lvgl_kconfig_path))
+            .open(lvgl_kconfig_path)
             .await?;
 
         nuttx_lvgl_kconfig
