@@ -223,8 +223,8 @@ endif # GRAPHICS_LVGL
             && ./tools/configure.sh -l esp32s3-lcd-ev:lvgl \
             && ESP_HAL_3RDPARTY_URL='lvgl@127.0.0.1:{}' make -j$(nproc) nuttx \
             ",
-            esp_hal_path.display(),
             nuttx_path.display(),
+            esp_hal_path.display(),
         ))
         .spawn()?
         .wait()
