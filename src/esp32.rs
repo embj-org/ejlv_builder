@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::sleep;
 use tokio_serial::SerialPortBuilderExt;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{board_folder, results_path};
 
@@ -163,9 +163,12 @@ async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
 
     let source_bin_path = nuttx_path.join("nuttx.bin");
     let target_bin_path = project_path.join("nuttx.bin");
+    let esp_hal_path = project_path.join("espressif").join("esp-hal-3rdparty.git");
 
+    info!("Cleaning nuttx build files");
     nuttx_clean(sdk).await?;
 
+    info!("Setting up nuttx config");
     {
         let mut nuttx_lvgl_kconfig = OpenOptions::new()
             .write(true)
@@ -212,27 +215,27 @@ endif # GRAPHICS_LVGL
             .await?;
     }
 
+    info!("Building nuttx");
     let result = Command::new("bash")
         .arg("-c")
         .arg(&format!(
             "cd {} \
             && ./tools/configure.sh -l esp32s3-lcd-ev:lvgl \
-            && ESP_HAL_3RDPARTY_URL='lvgl@127.0.0.1:/home/lvgl/lv_ej_workspace/lv_nuttx/espressif/esp-hal-3rdparty.git' make -j$(nproc) nuttx \
+            && ESP_HAL_3RDPARTY_URL='lvgl@127.0.0.1:{}' make -j$(nproc) nuttx \
             ",
-            project_path.display(),
+            esp_hal_path.display(),
+            nuttx_path.display(),
         ))
         .spawn()?
         .wait()
         .await?;
     assert!(result.success());
 
-    tokio::fs::copy(
-        project_path.join(source_bin_path),
-        project_path.join(target_bin_path),
-    )
-    .await?;
+    info!("Saving binary file");
+    tokio::fs::copy(source_bin_path, target_bin_path).await?;
 
     /* we need to clean this build so the lvgl dir isn't polluted with object files*/
+    info!("Cleaning nuttx build files");
     nuttx_clean(sdk).await?;
 
     Ok(())
