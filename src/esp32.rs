@@ -23,7 +23,7 @@ fn idf_version(sdk: &BuilderSdk) -> &'static str {
 fn project_path(sdk: &BuilderSdk) -> PathBuf {
     match sdk.board_config_name() {
         "eve" => board_folder(&sdk.config_path(), "eve"),
-        "nuttx" => board_folder(&sdk.config_path(), "lv_nuttx/nuttx"),
+        "nuttx" => board_folder(&sdk.config_path(), "lv_nuttx"),
         _ => board_folder(&sdk.config_path(), sdk.board_name()),
     }
 }
@@ -76,7 +76,7 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
     Ok(Command::new("bash")
         .arg("-c")
         .arg(&format!(
-            ". /home/lvgl/esp/esp-idf{}/export.sh && idf.py -C {} --ccache {}",
+            ". /home/lvgl/esp/esp-idf{}/export.sh && idf.py -C {}  {}",
             idf_version,
             project_path.display(),
             command
@@ -86,8 +86,21 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
         .await?)
 }
 
+async fn run_esptool_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> {
+    let idf_version = idf_version(sdk);
+    Ok(Command::new("bash")
+        .arg("-c")
+        .arg(&format!(
+            ". /home/lvgl/esp/esp-idf{}/export.sh && esptool.py {}",
+            idf_version, command
+        ))
+        .spawn()?
+        .wait()
+        .await?)
+}
+
 async fn build_esp32s3_esp_idf(sdk: &BuilderSdk) -> Result<()> {
-    let result = run_idf_command(sdk, "build").await?;
+    let result = run_idf_command(sdk, "--ccache build").await?;
 
     if !result.success() {
         warn!(
@@ -99,7 +112,7 @@ async fn build_esp32s3_esp_idf(sdk: &BuilderSdk) -> Result<()> {
         // case files were added or removed from the source tree
         let result = run_idf_command(sdk, &format!("set-target {}", sdk.board_name())).await?;
         assert!(result.success(), "Clean Failed");
-        let result = run_idf_command(sdk, "build").await?;
+        let result = run_idf_command(sdk, "--ccache build").await?;
         assert!(result.success(), "Build Failed");
     }
 
@@ -108,21 +121,27 @@ async fn build_esp32s3_esp_idf(sdk: &BuilderSdk) -> Result<()> {
 
 async fn nuttx_clean(sdk: &BuilderSdk) -> Result<()> {
     let project_path = project_path(sdk);
+    let nuttx_path = project_path.join("nuttx");
+    let lvgl_path = project_path
+        .join("apps")
+        .join("graphics")
+        .join("lvgl")
+        .join("lvgl");
 
     let _ = Command::new("make")
         .arg("-C")
-        .arg(&project_path)
+        .arg(&nuttx_path)
         .arg("distclean")
         .spawn()?
         .wait()
         .await?;
 
-    // do this defensively in case distclean's rules weren't generated properly
+    /* do this defensively in case distclean's rules weren't generated properly*/
     let result = Command::new("bash")
         .arg("-c")
         .arg(&format!(
             "rm -f $(find -H {} -name '*.o')",
-            project_path.join("../apps/graphics/lvgl/lvgl").display(),
+            lvgl_path.display()
         ))
         .spawn()?
         .wait()
@@ -134,6 +153,16 @@ async fn nuttx_clean(sdk: &BuilderSdk) -> Result<()> {
 
 async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
     let project_path = project_path(sdk);
+    let nuttx_path = project_path.join("nuttx");
+    let lvgl_apps = project_path.join("apps").join("graphics").join("lvgl");
+
+    let lvgl_path = lvgl_apps.join("lvgl");
+    let nuttx_lvgl_kconfig_path = lvgl_apps.join("Kconfig");
+
+    let lvgl_kconfig_path = lvgl_path.join("Kconfig");
+
+    let source_bin_path = nuttx_path.join("nuttx.bin");
+    let target_bin_path = project_path.join("nuttx.bin");
 
     nuttx_clean(sdk).await?;
 
@@ -141,12 +170,12 @@ async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
         let mut nuttx_lvgl_kconfig = OpenOptions::new()
             .write(true)
             .truncate(true)
-            .open(project_path.join("../apps/graphics/lvgl/Kconfig"))
+            .open(nuttx_lvgl_kconfig_path)
             .await?;
 
         let mut lvgl_kconfig = OpenOptions::new()
             .read(true)
-            .open(project_path.join("../apps/graphics/lvgl/lvgl/Kconfig"))
+            .open(project_path.join(lvgl_kconfig_path))
             .await?;
 
         nuttx_lvgl_kconfig
@@ -198,12 +227,12 @@ endif # GRAPHICS_LVGL
     assert!(result.success());
 
     tokio::fs::copy(
-        project_path.join("nuttx.bin"),
-        project_path.join("../nuttx.bin"),
+        project_path.join(source_bin_path),
+        project_path.join(target_bin_path),
     )
     .await?;
 
-    // we need to clean this build so the lvgl dir isn't polluted with object files
+    /* we need to clean this build so the lvgl dir isn't polluted with object files*/
     nuttx_clean(sdk).await?;
 
     Ok(())
@@ -220,23 +249,23 @@ pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
 pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     let board_config_name = sdk.board_config_name();
     let project_path = project_path(sdk);
-
     let results_p = results_path(&sdk.config_path(), "esp32s3");
+
     let _ = std::fs::remove_file(&results_p);
 
     let flashing_port = flashing_serial_port(sdk).await?;
 
     if board_config_name == "nuttx" {
-        let result = Command::new("bash")
-            .arg("-c")
-            .arg(&format!(
-                "esptool.py -c esp32s3 -p {} -b 921600  write_flash -fs detect -fm dio -ff \"40m\" 0x0000 {}",
+        let bin_path = project_path.join("nuttx.bin");
+        let result = run_esptool_command(
+            sdk,
+            &format!(
+                "-c esp32s3 -p {} -b 921600 write_flash -fs detect -fm dio -ff \"40m\" 0x0000 {}",
                 flashing_port,
-                project_path.join("../nuttx.bin").display(),
-            ))
-            .spawn()?
-            .wait()
-            .await?;
+                bin_path.display()
+            ),
+        )
+        .await?;
         assert!(result.success());
     } else {
         let result = run_idf_command(sdk, &format!("--port {} flash", flashing_port)).await?;
@@ -251,7 +280,7 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
         .open_native_async()?;
 
     if board_config_name == "nuttx" {
-        // just in case the nuttx prompt isn't ready yet
+        /* just in case the nuttx prompt isn't ready yet */
         sleep(Duration::from_millis(2000)).await;
 
         port.write_all(b"my_lvgl_app\n").await?;
