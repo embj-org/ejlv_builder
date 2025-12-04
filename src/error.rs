@@ -21,4 +21,8 @@ pub enum Error {
     /// Device not found
     #[error("A device was not found: {0}")]
     DeviceNotFound(String),
+
+    /// A git command failed
+    #[error("Git command Failed: {0}")]
+    GitError(String),
 }

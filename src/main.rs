@@ -13,6 +13,7 @@ mod rzg3e;
 mod stm32;
 
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk};
+use tokio::process::Command;
 use tracing::{error, info};
 
 use crate::{
@@ -110,117 +111,116 @@ struct BuildProcess {
 }
 
 impl BuildProcess {
-    const LVGL_REPO: &'static str = "https://raw.githubusercontent.com/lvgl/lvgl/master";
+    fn lvgl_repo_path(&self) -> PathBuf {
+        self.config_path.join("lvgl-master")
+    }
+    async fn update_lvgl_repo(&self) -> Result<()> {
+        let repo_path = self.lvgl_repo_path();
 
-    async fn fetch_file_from_github(url: &str, target: &Path) -> Result<()> {
-        let response = reqwest::get(url)
-            .await
-            .expect("Failed to fetch file from github");
-        assert!(
-            response.status().is_success(),
-            "Failed to fetch {}: {}",
-            url,
-            response.status()
-        );
+        if repo_path.exists() {
+            info!("Updating existing LVGL repository");
+            let args = vec![
+                "-C",
+                repo_path.to_str().unwrap(),
+                "pull",
+                "origin",
+                "master",
+            ];
 
-        let content = response
-            .bytes()
-            .await
-            .expect("Failed to get bytes from file");
+            let status = Command::new("git").args(&args).status().await?;
 
-        if let Some(parent) = target.parent() {
+            if !status.success() {
+                return Err(Error::GitError(
+                    "Failed to pull latest LVGL repository".to_string(),
+                ));
+            }
+        } else {
+            info!("Cloning LVGL repository");
+
+            let args = vec![
+                "clone",
+                "--depth",
+                "1",
+                "https://github.com/lvgl/lvgl.git",
+                repo_path.to_str().unwrap(),
+            ];
+            let status = Command::new("git").args(&args).status().await?;
+
+            if !status.success() {
+                return Err(Error::GitError(
+                    "Failed to clone LVGL repository".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn copy_file(&self, src_relative: &str, dest_relative: &str) -> Result<()> {
+        let src = self.lvgl_repo_path().join(src_relative);
+        let dest = lvgl_folder(&self.config_path).join(dest_relative);
+
+        if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::write(target, content).await?;
+
+        tokio::fs::copy(&src, &dest).await?;
         Ok(())
     }
-    async fn fetch_github_tree(
-        owner: &str,
-        repo: &str,
-        path: &str,
-        branch: &str,
-    ) -> Result<Vec<String>> {
-        let api_url = format!(
-            "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-            owner, repo, path, branch
-        );
 
-        let client = reqwest::Client::new();
-        let response = client
-            .get(&api_url)
-            .header("User-Agent", "lvgl-builder")
-            .send()
-            .await
-            .expect("Failed to fetch github tree");
+    async fn copy_directory(&self, src_relative: &str, dest_relative: &str) -> Result<()> {
+        let src = self.lvgl_repo_path().join(src_relative);
+        let dest = lvgl_folder(&self.config_path).join(dest_relative);
 
-        assert!(
-            response.status().is_success(),
-            "Failed to fetch directory listing: {}",
-            response.status()
-        );
+        if dest.exists() {
+            tokio::fs::remove_dir_all(&dest).await?;
+        }
 
-        let response_text = response.text().await.expect("Failed to get response text");
-        let items: Vec<serde_json::Value> =
-            serde_json::from_str(&response_text).expect("faield to parse response text");
-        let files: Vec<String> = items
-            .into_iter()
-            .filter(|item| item["type"] == "file")
-            .filter_map(|item| item["download_url"].as_str().map(String::from))
-            .collect();
+        tokio::fs::create_dir_all(&dest).await?;
 
-        Ok(files)
-    }
+        let mut entries = tokio::fs::read_dir(&src).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_name = entry.file_name();
+            let src_file = entry.path();
+            let dest_file = dest.join(&file_name);
 
-    async fn fetch_cmakelists_files(&self) -> Result<()> {
-        let cmakelists_url = format!("{}/CMakeLists.txt", Self::LVGL_REPO);
-        let target_path = lvgl_folder(&self.config_path).join("CMakeLists.txt");
-
-        Self::fetch_file_from_github(&cmakelists_url, &target_path).await?;
-
-        let cmake_files =
-            Self::fetch_github_tree("lvgl", "lvgl", "env_support/cmake", "master").await?;
-        let target_folder = lvgl_folder(&self.config_path)
-            .join("env_support")
-            .join("cmake");
-
-        for file_url in cmake_files {
-            let file_name = file_url.split('/').last().unwrap();
-            let target = target_folder.join(file_name);
-            Self::fetch_file_from_github(&file_url, &target).await?;
+            if src_file.is_file() {
+                tokio::fs::copy(&src_file, &dest_file).await?;
+            }
         }
 
         Ok(())
     }
-
-    async fn fetch_makefile(&self) -> Result<()> {
-        let makefile_url = format!("{}/lvgl.mk", Self::LVGL_REPO);
-        let target_path = lvgl_folder(&self.config_path).join("lvgl.mk");
-        Self::fetch_file_from_github(&makefile_url, &target_path).await?;
+    async fn copy_cmakelists_files(&self) -> Result<()> {
+        self.copy_file("CMakeLists.txt", "CMakeLists.txt").await?;
+        self.copy_directory("env_support/cmake", "env_support/cmake")
+            .await?;
         Ok(())
     }
 
-    async fn fetch_build_scripts(&self) -> Result<()> {
-        let script_files = Self::fetch_github_tree("lvgl", "lvgl", "scripts", "master").await?;
-        let target_folder = lvgl_folder(&self.config_path).join("scripts");
+    async fn copy_makefile(&self) -> Result<()> {
+        self.copy_file("lvgl.mk", "lvgl.mk").await?;
+        Ok(())
+    }
 
-        for file_url in script_files {
-            let file_name = file_url.split('/').last().unwrap();
-            let target = target_folder.join(file_name);
-            Self::fetch_file_from_github(&file_url, &target).await?;
-        }
-
+    async fn copy_scripts(&self) -> Result<()> {
+        self.copy_directory("scripts", "scripts").await?;
         Ok(())
     }
 
     pub async fn fetch_build_files_from_master(&self) -> Result<()> {
-        info!("Preparing build system for LVGL");
-        info!("Fetching Cmakelists files");
-        self.fetch_cmakelists_files().await?;
-        info!("Fetching makefile");
-        self.fetch_makefile().await?;
-        info!("Fetching scripts");
-        self.fetch_build_scripts().await?;
         info!("LVGL build system Ready");
+        self.update_lvgl_repo().await?;
+
+        info!("Copying CMakeLists files");
+        self.copy_cmakelists_files().await?;
+
+        info!("Copying makefile");
+        self.copy_makefile().await?;
+
+        info!("Copying scripts");
+        self.copy_scripts().await?;
+
         Ok(())
     }
 }
