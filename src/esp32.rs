@@ -295,18 +295,19 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
 
     let mut output = String::new();
     loop {
-        let mut line = String::new();
-        let n = reader.read_line(&mut line).await?;
+        let mut buffer = Vec::new();
+        let n = reader.read_until(b'\n', &mut buffer).await?;
 
         if n == 0 {
             return Err(Error::TimeoutWaitingForBenchmarkToEnd(output));
         }
 
-        output.push_str(&line[..n]);
-
-        if output.contains("Benchmark Over") {
-            std::fs::write(results_p, output)?;
-            return Ok(());
+        if let Ok(line) = String::from_utf8(buffer) {
+            output.push_str(&line);
+            if output.contains("Benchmark Over") {
+                std::fs::write(results_p, output)?;
+                return Ok(());
+            }
         }
     }
 }
