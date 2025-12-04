@@ -112,7 +112,7 @@ struct BuildProcess {
 
 impl BuildProcess {
     fn lvgl_repo_path(&self) -> PathBuf {
-        self.config_path.join("lvgl-master")
+        workspace_folder(&self.config_path).join("lvgl-master")
     }
     async fn update_lvgl_repo(&self) -> Result<()> {
         let repo_path = self.lvgl_repo_path();
