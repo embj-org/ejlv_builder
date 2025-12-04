@@ -221,7 +221,7 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     let board_config_name = sdk.board_config_name();
     let project_path = project_path(sdk);
 
-    let results_p = results_path(&sdk.config_path(), board_config_name);
+    let results_p = results_path(&sdk.config_path(), "esp32s3");
     let _ = std::fs::remove_file(&results_p);
 
     let flashing_port = flashing_serial_port(sdk).await?;
