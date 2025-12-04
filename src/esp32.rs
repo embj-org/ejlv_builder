@@ -44,8 +44,7 @@ async fn flashing_serial_port(sdk: &BuilderSdk) -> Result<&'static str> {
             .arg("-c")
             .arg(&format!(
                 ". /home/lvgl/esp/esp-idf{}/export.sh && esptool.py --port {} read_mac",
-                idf_version,
-                port
+                idf_version, port
             ))
             .output()
             .await?;
@@ -55,7 +54,10 @@ async fn flashing_serial_port(sdk: &BuilderSdk) -> Result<&'static str> {
         }
     }
 
-    Err(Error::DeviceNotFound(format!("ESP32S3 with MAC address \"{}\"", mac)))
+    Err(Error::DeviceNotFound(format!(
+        "ESP32S3 with MAC address \"{}\"",
+        mac
+    )))
 }
 
 async fn application_serial_port(sdk: &BuilderSdk) -> Result<&'static str> {
@@ -108,12 +110,12 @@ async fn nuttx_clean(sdk: &BuilderSdk) -> Result<()> {
     let project_path = project_path(sdk);
 
     let _ = Command::new("make")
-    .arg("-C")
-    .arg(&project_path)
-    .arg("distclean")
-    .spawn()?
-    .wait()
-    .await?;
+        .arg("-C")
+        .arg(&project_path)
+        .arg("distclean")
+        .spawn()?
+        .wait()
+        .await?;
 
     // do this defensively in case distclean's rules weren't generated properly
     let result = Command::new("bash")
@@ -147,7 +149,9 @@ async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
             .open(project_path.join("../apps/graphics/lvgl/lvgl/Kconfig"))
             .await?;
 
-        nuttx_lvgl_kconfig.write_all(br#"#
+        nuttx_lvgl_kconfig
+            .write_all(
+                br#"#
 # For a description of the syntax of this configuration file,
 # see the file kconfig-language.txt in the NuttX tools repository.
 #
@@ -160,17 +164,23 @@ menuconfig GRAPHICS_LVGL
 
 if GRAPHICS_LVGL
 
-"#).await?;
+"#,
+            )
+            .await?;
 
         tokio::io::copy(&mut lvgl_kconfig, &mut nuttx_lvgl_kconfig).await?;
 
-        nuttx_lvgl_kconfig.write_all(br#"
+        nuttx_lvgl_kconfig
+            .write_all(
+                br#"
 config LV_OPTLEVEL
 	string "Customize compilation optimization level"
 	default ""
 
 endif # GRAPHICS_LVGL
-"#).await?;
+"#,
+            )
+            .await?;
     }
 
     let result = Command::new("bash")
@@ -187,7 +197,11 @@ endif # GRAPHICS_LVGL
         .await?;
     assert!(result.success());
 
-    tokio::fs::copy(project_path.join("nuttx.bin"), project_path.join("../nuttx.bin")).await?;
+    tokio::fs::copy(
+        project_path.join("nuttx.bin"),
+        project_path.join("../nuttx.bin"),
+    )
+    .await?;
 
     // we need to clean this build so the lvgl dir isn't polluted with object files
     nuttx_clean(sdk).await?;
