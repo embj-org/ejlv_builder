@@ -163,7 +163,8 @@ async fn build_esp32s3_nuttx(sdk: &BuilderSdk) -> Result<()> {
 
     let source_bin_path = nuttx_path.join("nuttx.bin");
     let target_bin_path = project_path.join("nuttx.bin");
-    let esp_hal_path = project_path.join("espressif").join("esp-hal-3rdparty.git");
+    let esp_hal_path =
+        std::path::absolute(project_path.join("espressif").join("esp-hal-3rdparty.git"))?;
 
     info!("Cleaning nuttx build files");
     nuttx_clean(sdk).await?;
