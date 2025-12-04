@@ -25,6 +25,34 @@ fn project_path(sdk: &BuilderSdk) -> PathBuf {
         board_folder(&sdk.config_path(), sdk.board_name())
     }
 }
+async fn serial_port(sdk: &BuilderSdk) -> Result<&'static str> {
+    let mac = if sdk.board_config_name() == "eve" {
+        "34:85:18:6c:f6:dc"
+    } else {
+        "30:30:f9:5a:88:00"
+    };
+
+    let ports = ["/dev/ttyACM0", "/dev/ttyACM1"];
+
+    for port in ports {
+        let idf_version = idf_version(sdk);
+        let result = Command::new("bash")
+            .arg("-c")
+            .arg(&format!(
+                ". /home/lvgl/esp/esp-idf{}/export.sh && esptool.py --port {} read_mac",
+                idf_version,
+                port
+            ))
+            .output()
+            .await?;
+
+        if String::from_utf8_lossy(&result.stdout).contains(mac) {
+            return Ok(port);
+        }
+    }
+
+    Err(Error::DeviceNotFound(format!("ESP32S3 with MAC address \"{}\"", mac.to_string())))
+}
 
 async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> {
     let idf_version = idf_version(sdk);
@@ -32,7 +60,7 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
     Ok(Command::new("bash")
         .arg("-c")
         .arg(&format!(
-            ". /home/lvgl/esp/esp-idf{}/export.sh && idf.py -C {} {}",
+            ". /home/lvgl/esp/esp-idf{}/export.sh && idf.py -C {} --ccache {}",
             idf_version,
             project_path.display(),
             command
@@ -43,7 +71,7 @@ async fn run_idf_command(sdk: &BuilderSdk, command: &str) -> Result<ExitStatus> 
 }
 
 pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
-    let result = run_idf_command(sdk, "--ccache build").await?;
+    let result = run_idf_command(sdk, "build").await?;
 
     if !result.success() {
         warn!(
@@ -55,7 +83,7 @@ pub async fn build_esp32s3(sdk: &BuilderSdk) -> Result<()> {
         // case files were added or removed from the source tree
         let result = run_idf_command(sdk, &format!("set-target {}", sdk.board_name())).await?;
         assert!(result.success(), "Clean Failed");
-        let result = run_idf_command(sdk, "--ccache build").await?;
+        let result = run_idf_command(sdk, "build").await?;
         assert!(result.success(), "Build Failed");
     }
 
@@ -66,13 +94,13 @@ pub async fn run_esp32s3(sdk: &BuilderSdk) -> Result<()> {
     let results_p = results_path(&sdk.config_path(), &sdk.board_config_name());
     let _ = std::fs::remove_file(&results_p);
 
-    let result = run_idf_command(sdk, "flash").await?;
+    let port = serial_port(sdk).await?;
+
+    let result = run_idf_command(sdk, &format!("--port {} flash", port)).await?;
 
     assert!(result.success());
 
-    // TODO: Create some udev rules to avoid having to hardcode this
-    // Fine for now but will need to be done when new boards are added
-    let port = tokio_serial::new("/dev/ttyACM0", 115_200)
+    let port = tokio_serial::new(port, 115_200)
         .timeout(Duration::from_secs(120))
         .open_native_async()?;
 

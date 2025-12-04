@@ -17,4 +17,8 @@ pub enum Error {
     /// Serial Port Timeout
     #[error("Timeout Waiting For Benchmark To End - Output: {0}")]
     TimeoutWaitingForBenchmarkToEnd(String),
+
+    /// Device not found
+    #[error("A device was not found: {0}")]
+    DeviceNotFound(String),
 }
