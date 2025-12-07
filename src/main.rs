@@ -231,12 +231,13 @@ impl Drop for BuildProcess {
         std::process::Command::new("git")
             .arg("-C")
             .arg(lvgl_folder(&self.config_path))
-            .arg("restore")
+            .arg("clean")
+            .arg("-fdx")
             .arg(".")
             .spawn()
-            .expect("Failed to spawn git restore process.")
+            .expect("Failed to spawn git clean process.")
             .wait()
-            .expect("Git restore process failed.");
+            .expect("Git clean process failed.");
     }
 }
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
