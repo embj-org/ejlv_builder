@@ -57,7 +57,5 @@ pub async fn run_stm32(sdk: &BuilderSdk) -> Result<()> {
     info!("Benchmark runs on the stm32 are disabled for now.");
     let results_p = results_path(&sdk.config_path(), "stm32u5g9");
     std::fs::write(&results_p, "Skip")?;
-    return Ok(());
-    info!("Running STM32 configs is coming soon.");
     Ok(())
 }
