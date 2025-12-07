@@ -2,7 +2,7 @@ use ej_builder_sdk::BuilderSdk;
 use tokio::process::Command;
 use tracing::info;
 
-use crate::{board_folder, lvgl_folder, prelude::*};
+use crate::{board_folder, lvgl_folder, prelude::*, results_path};
 
 pub async fn build_stm32(sdk: &BuilderSdk) -> Result<()> {
     let nprocs = num_cpus::get();
@@ -53,7 +53,11 @@ pub async fn build_stm32(sdk: &BuilderSdk) -> Result<()> {
     Ok(())
 }
 
-pub async fn run_stm32(_sdk: &BuilderSdk) -> Result<()> {
+pub async fn run_stm32(sdk: &BuilderSdk) -> Result<()> {
+    info!("Benchmark runs on the stm32 are disabled for now.");
+    let results_p = results_path(&sdk.config_path(), "stm32u5g9");
+    std::fs::write(&results_p, "Skip")?;
+    return Ok(());
     info!("Running STM32 configs is coming soon.");
     Ok(())
 }

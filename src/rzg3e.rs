@@ -54,9 +54,11 @@ pub async fn build_rzg3e(sdk: &BuilderSdk) -> Result<()> {
 
 pub async fn run_rzg3e(sdk: &BuilderSdk) -> Result<()> {
     info!("Benchmark runs on the rzg3e are disabled for now.");
+    let results_p = results_path(&sdk.config_path(), "renesas-rzg3e");
+    std::fs::write(&results_p, "Skip")?;
+
     return Ok(());
 
-    let results_p = results_path(&sdk.config_path(), "renesas-rzg3e");
     let _ = std::fs::remove_file(&results_p);
 
     let path = target_path(&sdk.config_path(), sdk.board_config_name());
