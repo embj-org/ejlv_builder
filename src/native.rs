@@ -50,6 +50,11 @@ pub async fn build_cmake_native(sdk: &BuilderSdk) -> Result<()> {
 
 pub async fn run_native(sdk: &BuilderSdk) -> Result<()> {
     let results_p = results_path(&sdk.config_path(), "ser8");
+    if sdk.board_config_name().starts_with("glfw") {
+        std::fs::write(&results_p, "Skip")?;
+        return Ok(());
+    }
+
     let _ = std::fs::remove_file(&results_p);
 
     let path = target_path(&sdk.config_path(), sdk.board_config_name());
