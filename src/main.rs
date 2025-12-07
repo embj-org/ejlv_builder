@@ -224,22 +224,26 @@ impl BuildProcess {
         Ok(())
     }
 }
-
 impl Drop for BuildProcess {
     fn drop(&mut self) {
-        info!("Restoring git folder");
-        std::process::Command::new("git")
+        info!("Resetting git folder");
+
+        let _ = std::process::Command::new("git")
+            .arg("-C")
+            .arg(lvgl_folder(&self.config_path))
+            .arg("reset")
+            .arg("--hard")
+            .status();
+
+        let _ = std::process::Command::new("git")
             .arg("-C")
             .arg(lvgl_folder(&self.config_path))
             .arg("clean")
             .arg("-fdx")
-            .arg(".")
-            .spawn()
-            .expect("Failed to spawn git clean process.")
-            .wait()
-            .expect("Git clean process failed.");
+            .status();
     }
 }
+
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
     let build_process = BuildProcess {
         config_path: sdk.config_path().clone(),
