@@ -195,6 +195,11 @@ impl BuildProcess {
         self.copy_file("CMakeLists.txt", "CMakeLists.txt").await?;
         self.copy_directory("env_support/cmake", "env_support/cmake")
             .await?;
+        self.copy_directory(
+            "env_support/cmake/dependencies",
+            "env_support/cmake/dependencies",
+        )
+        .await?;
         Ok(())
     }
 
