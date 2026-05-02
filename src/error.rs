@@ -25,4 +25,8 @@ pub enum Error {
     /// A git command failed
     #[error("Git command Failed: {0}")]
     GitError(String),
+
+    /// Something went wrong parsing the config
+    #[error("Error parsing config: {0}")]
+    ConfigError(String),
 }

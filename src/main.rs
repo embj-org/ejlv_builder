@@ -5,6 +5,7 @@ use std::{
     process::exit,
 };
 
+mod config;
 mod error;
 mod esp32;
 mod native;
@@ -12,6 +13,7 @@ mod prelude;
 mod rzg3e;
 mod stm32;
 
+use config::EjLvBuilderConfig;
 use ej_builder_sdk::{Action, BuilderEvent, BuilderSdk};
 use tokio::process::Command;
 use tracing::{error, info};
@@ -108,48 +110,143 @@ fn results_path(config_path: &Path, config_name: &str) -> PathBuf {
 
 struct BuildProcess {
     config_path: PathBuf,
+    /// Parsed workspace-level config controlling where build files come from.
+    ej_config: EjLvBuilderConfig,
 }
 
 impl BuildProcess {
     fn lvgl_repo_path(&self) -> PathBuf {
         workspace_folder(&self.config_path).join("lvgl-master")
     }
+
     async fn update_lvgl_repo(&self) -> Result<()> {
         let repo_path = self.lvgl_repo_path();
+        let remote = &self.ej_config.build_files.remote;
+        let commit = &self.ej_config.build_files.commit;
 
         if repo_path.exists() {
-            info!("Updating existing LVGL repository");
-            let args = vec![
-                "-C",
-                repo_path.to_str().unwrap(),
-                "pull",
-                "origin",
-                "master",
-            ];
+            info!("Updating existing LVGL repository (remote={remote}, commit={commit})");
 
-            let status = Command::new("git").args(&args).status().await?;
+            // Point origin at the configured remote in case it changed.
+            let status = Command::new("git")
+                .args([
+                    "-C",
+                    repo_path.to_str().unwrap(),
+                    "remote",
+                    "set-url",
+                    "origin",
+                    remote,
+                ])
+                .status()
+                .await?;
 
             if !status.success() {
-                return Err(Error::GitError(
-                    "Failed to pull latest LVGL repository".to_string(),
-                ));
+                return Err(Error::GitError("Failed to update remote URL".to_string()));
+            }
+
+            // Fetch the specific ref so shallow clones also work.
+            let status = Command::new("git")
+                .args([
+                    "-C",
+                    repo_path.to_str().unwrap(),
+                    "fetch",
+                    "--depth",
+                    "1",
+                    "origin",
+                    commit,
+                ])
+                .status()
+                .await?;
+
+            if !status.success() {
+                return Err(Error::GitError(format!(
+                    "Failed to fetch '{commit}' from '{remote}'"
+                )));
+            }
+
+            // Reset working tree to the fetched commit.
+            let status = Command::new("git")
+                .args([
+                    "-C",
+                    repo_path.to_str().unwrap(),
+                    "reset",
+                    "--hard",
+                    "FETCH_HEAD",
+                ])
+                .status()
+                .await?;
+
+            if !status.success() {
+                return Err(Error::GitError("Failed to reset to FETCH_HEAD".to_string()));
             }
         } else {
-            info!("Cloning LVGL repository");
+            info!("Cloning LVGL repository (remote={remote}, commit={commit})");
 
-            let args = vec![
-                "clone",
-                "--depth",
-                "1",
-                "https://github.com/lvgl/lvgl.git",
-                repo_path.to_str().unwrap(),
-            ];
-            let status = Command::new("git").args(&args).status().await?;
+            // Clone with depth=1 for speed; we'll check out the right ref next.
+            let status = Command::new("git")
+                .args([
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--branch",
+                    commit,
+                    remote,
+                    repo_path.to_str().unwrap(),
+                ])
+                .status()
+                .await?;
 
+            // `--branch` works for branches and tags but not bare SHAs.
+            // If that failed, fall back to a clone + fetch + reset approach.
             if !status.success() {
-                return Err(Error::GitError(
-                    "Failed to clone LVGL repository".to_string(),
-                ));
+                info!("Branch/tag clone failed, attempting SHA checkout");
+
+                let status = Command::new("git")
+                    .args(["clone", "--depth", "1", remote, repo_path.to_str().unwrap()])
+                    .status()
+                    .await?;
+
+                if !status.success() {
+                    return Err(Error::GitError(format!(
+                        "Failed to clone LVGL repository from '{remote}'"
+                    )));
+                }
+
+                let status = Command::new("git")
+                    .args([
+                        "-C",
+                        repo_path.to_str().unwrap(),
+                        "fetch",
+                        "--depth",
+                        "1",
+                        "origin",
+                        commit,
+                    ])
+                    .status()
+                    .await?;
+
+                if !status.success() {
+                    return Err(Error::GitError(format!(
+                        "Failed to fetch commit '{commit}' from '{remote}'"
+                    )));
+                }
+
+                let status = Command::new("git")
+                    .args([
+                        "-C",
+                        repo_path.to_str().unwrap(),
+                        "reset",
+                        "--hard",
+                        "FETCH_HEAD",
+                    ])
+                    .status()
+                    .await?;
+
+                if !status.success() {
+                    return Err(Error::GitError(
+                        "Failed to reset to fetched commit".to_string(),
+                    ));
+                }
             }
         }
 
@@ -191,6 +288,7 @@ impl BuildProcess {
 
         Ok(())
     }
+
     async fn copy_cmakelists_files(&self) -> Result<()> {
         self.copy_file("CMakeLists.txt", "CMakeLists.txt").await?;
         self.copy_directory("env_support/cmake", "env_support/cmake")
@@ -213,8 +311,8 @@ impl BuildProcess {
         Ok(())
     }
 
-    pub async fn fetch_build_files_from_master(&self) -> Result<()> {
-        info!("LVGL build system Ready");
+    pub async fn fetch_build_files(&self) -> Result<()> {
+        info!("LVGL build system ready");
         self.update_lvgl_repo().await?;
 
         info!("Copying CMakeLists files");
@@ -229,6 +327,7 @@ impl BuildProcess {
         Ok(())
     }
 }
+
 impl Drop for BuildProcess {
     fn drop(&mut self) {
         info!("Resetting git folder");
@@ -250,10 +349,20 @@ impl Drop for BuildProcess {
 }
 
 pub async fn build(sdk: BuilderSdk) -> Result<()> {
+    let workspace = workspace_folder(&sdk.config_path());
+    let ej_config = EjLvBuilderConfig::load(&workspace).await?;
+
+    info!(
+        "Using build files from remote='{}' commit='{}'",
+        ej_config.build_files.remote, ej_config.build_files.commit
+    );
+
     let build_process = BuildProcess {
         config_path: sdk.config_path().clone(),
+        ej_config,
     };
-    build_process.fetch_build_files_from_master().await?;
+
+    build_process.fetch_build_files().await?;
 
     let configs = get_board_configs();
     let board_config = configs
@@ -271,6 +380,7 @@ pub async fn run(sdk: BuilderSdk) -> Result<()> {
 
     (board_config.run_fn)(&sdk).await
 }
+
 pub async fn kill(sdk: BuilderSdk) -> Result<()> {
     let configs = get_board_configs();
     let board_config = configs
