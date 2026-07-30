@@ -19,3 +19,4 @@ tracing = "0.1.41"
 tokio-serial = "5.4.1"
 toml = { version = "1.1.2", features = ["serde"] }
 serde = { version = "1.0.228", features = ["serde_derive"] }
+async-recursion = "1.1.1"

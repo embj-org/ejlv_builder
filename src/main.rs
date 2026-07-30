@@ -1,3 +1,4 @@
+use async_recursion::async_recursion;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -288,6 +289,28 @@ impl BuildProcess {
 
         Ok(())
     }
+    #[async_recursion]
+    async fn copy_directory_recursive(&self, src: &Path, dest: &Path) -> Result<()> {
+        if dest.exists() {
+            tokio::fs::remove_dir_all(&dest).await?;
+        }
+
+        tokio::fs::create_dir_all(&dest).await?;
+
+        let mut entries = tokio::fs::read_dir(&src).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_name = entry.file_name();
+            let src_file = entry.path();
+            let dest_file = dest.join(&file_name);
+
+            if src_file.is_file() {
+                tokio::fs::copy(&src_file, &dest_file).await?;
+            } else if src_file.is_dir() {
+                self.copy_directory_recursive(&src_file, &dest_file).await?;
+            }
+        }
+        Ok(())
+    }
 
     async fn copy_cmakelists_files(&self) -> Result<()> {
         self.copy_file("CMakeLists.txt", "CMakeLists.txt").await?;
@@ -307,7 +330,9 @@ impl BuildProcess {
     }
 
     async fn copy_scripts(&self) -> Result<()> {
-        self.copy_directory("scripts", "scripts").await?;
+        let src = self.lvgl_repo_path().join("scripts");
+        let dst = lvgl_folder(&self.config_path).join("scripts");
+        self.copy_directory_recursive(&src, &dst).await?;
         Ok(())
     }
 
